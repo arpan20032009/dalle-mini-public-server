@@ -32,7 +32,7 @@ class HashtagProcessor:
         self._word_cost = {
             str(k): math.log(float(i + 1)) for i, k in enumerate(self._word_cost)
         }
-        self._max_word = max(len(x) for x in self._word_cost.keys())
+        self._max_word = max(len(x) for x in self._word_cost)
         self._SPLIT_RE = re.compile("[^a-zA-Z0-9']+")
 
     def __call__(self, s):

@@ -94,9 +94,8 @@ def sm3(
         w = (1.0 - beta2) if beta2 != 1.0 else 1.0
         if grad.ndim < 2:
             return beta2 * accumulators[0] + w * grad**2
-        else:
-            min_accumulator = functools.reduce(jnp.minimum, accumulators)
-            return beta2 * min_accumulator + w * grad**2
+        min_accumulator = functools.reduce(jnp.minimum, accumulators)
+        return beta2 * min_accumulator + w * grad**2
 
     def _moving_averages_momentum(grad, momentum):
         w = (1.0 - beta1) if beta1 != 1.0 else 1.0

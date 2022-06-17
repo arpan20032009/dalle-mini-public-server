@@ -138,8 +138,7 @@ class RMSNorm(nn.Module):
 
     def _compute_rms_sq(self, x, axes):
         x = jnp.asarray(x, jnp.promote_types(jnp.float32, jnp.result_type(x)))
-        rms_sq = jnp.mean(jax.lax.square(x), axes)
-        return rms_sq
+        return jnp.mean(jax.lax.square(x), axes)
 
     def _normalize(
         self,
@@ -1351,8 +1350,7 @@ class FlaxBartForConditionalGenerationModule(FlaxBartForConditionalGenerationMod
             lm_logits = self.lm_head(hidden_states)
 
         if not return_dict:
-            output = (lm_logits,) + outputs[1:]
-            return output
+            return (lm_logits,) + outputs[1:]
 
         return FlaxSeq2SeqLMOutput(
             logits=lm_logits,
@@ -1628,10 +1626,9 @@ class DalleBart(PretrainedFromWandbMixin, FlaxBartForConditionalGeneration):
             eos_token_id if eos_token_id is not None else self.config.eos_token_id
         )
         decoder_start_token_id = (
-            decoder_start_token_id
-            if decoder_start_token_id
-            else self.config.decoder_start_token_id
+            decoder_start_token_id or self.config.decoder_start_token_id
         )
+
         prng_key = prng_key if prng_key is not None else jax.random.PRNGKey(0)
 
         if decoder_start_token_id is None and self.config.is_encoder_decoder:

@@ -14,20 +14,18 @@ class ServiceError(Exception):
 
 def get_images_from_backend(prompt, backend_url):
     r = requests.post(backend_url, json={"prompt": prompt})
-    if r.status_code == 200:
-        json = r.json()
-        images = json["images"]
-        images = [Image.open(BytesIO(base64.b64decode(img))) for img in images]
-        version = json.get("version", "unknown")
-        return {"images": images, "version": version}
-    else:
+    if r.status_code != 200:
         raise ServiceError(r.status_code)
+    json = r.json()
+    images = json["images"]
+    images = [Image.open(BytesIO(base64.b64decode(img))) for img in images]
+    version = json.get("version", "unknown")
+    return {"images": images, "version": version}
 
 
 def get_model_version(url):
     r = requests.get(url)
     if r.status_code == 200:
-        version = r.json()["version"]
-        return version
+        return r.json()["version"]
     else:
         raise ServiceError(r.status_code)
