@@ -15,7 +15,7 @@ empty_dict = object()
 def _match(qs, ks):
     """Return True if regexes in qs match any window of strings in tuple ks."""
     # compile regexes and force complete match
-    qts = tuple(map(lambda x: re.compile(x + "$"), qs))
+    qts = tuple(map(lambda x: re.compile(f"{x}$"), qs))
     for i in range(len(ks) - len(qs) + 1):
         matches = [x.match(y) for x, y in zip(qts, ks[i:])]
         if matches and all(matches):

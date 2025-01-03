@@ -375,8 +375,15 @@ def diag_as_concat(diag, block_size):
     num_diag_blocks = len(diag) // block_size
     blocks = []
     for i in range(num_diag_blocks):
-        blocks.append(jnp.zeros(shape=(block_size, block_size * i), dtype=diag.dtype))
-        blocks.append(jnp.diag(diag[i * block_size : (i + 1) * block_size]))
+        blocks.extend(
+            (
+                jnp.zeros(
+                    shape=(block_size, block_size * i), dtype=diag.dtype
+                ),
+                jnp.diag(diag[i * block_size : (i + 1) * block_size]),
+            )
+        )
+
     return jnp.concatenate(blocks, axis=-1)
 
 
@@ -402,18 +409,17 @@ def row_abs_maxes(mat):
 
     # global row max from block maxes.
     num_blocks = num_blocks_from_total_blocks(cols // rows)
-    maxes = []
-    for i in range(num_blocks):
-        maxes.append(
-            jnp.concatenate(
-                row_maxes[(i * (i + 1) // 2) : ((i + 2) * (i + 1) // 2)]
-                + [
-                    col_maxes[((j + 1) * (j + 2)) // 2 - (j - i + 1)]
-                    for j in range(i + 1, num_blocks)
-                ],
-                axis=-1,
-            )
+    maxes = [
+        jnp.concatenate(
+            row_maxes[(i * (i + 1) // 2) : ((i + 2) * (i + 1) // 2)]
+            + [
+                col_maxes[((j + 1) * (j + 2)) // 2 - (j - i + 1)]
+                for j in range(i + 1, num_blocks)
+            ],
+            axis=-1,
         )
+        for i in range(num_blocks)
+    ]
 
     return jnp.max(jnp.stack(maxes), axis=0)
 

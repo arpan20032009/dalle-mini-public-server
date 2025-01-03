@@ -98,19 +98,21 @@ class LocalShardedParameterStats:
 def init_training_metrics(num_statistics):
     # Since the downstream apis expect a jnp.array - we create a dummy one if
     # num_statistics=0.
-    if not num_statistics:
-        return TrainingMetrics(jnp.array(0, jnp.float32))
-    else:
-        return TrainingMetrics(jnp.zeros([num_statistics], jnp.float32))
+    return (
+        TrainingMetrics(jnp.zeros([num_statistics], jnp.float32))
+        if num_statistics
+        else TrainingMetrics(jnp.array(0, jnp.float32))
+    )
 
 
 def init_training_metrics_shapes(num_statistics):
     # Since the downstream apis expect a jnp.array - we create a dummy one if
     # num_statistics=0.
-    if not num_statistics:
-        return TrainingMetrics([[], jnp.float32])
-    else:
-        return TrainingMetrics([[num_statistics], jnp.float32])
+    return (
+        TrainingMetrics([[num_statistics], jnp.float32])
+        if num_statistics
+        else TrainingMetrics([[], jnp.float32])
+    )
 
 
 def init_training_metrics_pspec():
@@ -420,12 +422,16 @@ def make_sliced_padding(
 
     blocks = []
     for i in range(starting_block, num_blocks):
-        blocks.append(
-            jnp.zeros(
-                shape=(symmetric_block_size, symmetric_block_size * i), dtype=dtype
+        blocks.extend(
+            (
+                jnp.zeros(
+                    shape=(symmetric_block_size, symmetric_block_size * i),
+                    dtype=dtype,
+                ),
+                jnp.eye(symmetric_block_size, dtype=dtype),
             )
         )
-        blocks.append(jnp.eye(symmetric_block_size, dtype=dtype))
+
     return jnp.concatenate(blocks, axis=-1)
 
 
@@ -658,7 +664,7 @@ class Preconditioner:
 def _convert_to_parameter_stats(global_stats, local_stat):
     """Creates parameter stats from sharded stats."""
     index_start = int(local_stat.index_start)
-    index_end = int(len(local_stat.sizes)) + index_start
+    index_end = len(local_stat.sizes) + index_start
     statistics = global_stats.statistics[index_start:index_end, :, :]
     preconditioners = global_stats.preconditioners[index_start:index_end, :, :]
     new_statistics = []
@@ -694,7 +700,7 @@ def _add_error_into_local_stats(local_stats, errors, inverse_failure_threshold):
     for local_stat in local_stats:
         if local_stat.sizes:
             index_start = int(local_stat.index_start)
-            index_end = int(len(local_stat.sizes)) + index_start
+            index_end = len(local_stat.sizes) + index_start
             per_stat_error = errors[index_start:index_end]
         else:
             per_stat_error = jnp.array(0, jnp.float32)
@@ -734,8 +740,11 @@ def unbatch(batched_values):
         v_array = jnp.squeeze(v_array)
         # b2 = batches (number of preconditioner computation) per core.
         if b2 > 1:
-            for v in jnp.split(v_array, indices_or_sections=b2, axis=0):
-                results.append(jnp.squeeze(v))
+            results.extend(
+                jnp.squeeze(v)
+                for v in jnp.split(v_array, indices_or_sections=b2, axis=0)
+            )
+
         else:
             results.append(v_array)
     return results
@@ -847,7 +856,7 @@ def distributed_shampoo(
 
     def _graft_type_has_diagonal_statistics():
         """Returns True if using diagonal first order method for grafting."""
-        return graft_type != GraftingType.SGD and graft_type != GraftingType.SQRT_N
+        return graft_type not in [GraftingType.SGD, GraftingType.SQRT_N]
 
     def _graft_type_has_diagonal_momentum_states():
         """Returns False if using SQRT_N for grafting."""
@@ -964,9 +973,10 @@ def distributed_shampoo(
                 shapes = preconditioner.shapes_for_preconditioners()
                 statistics = [
                     matrix_epsilon * jnp.eye(max_size, dtype=jnp.float32)
-                    for s in shapes
+                    for _ in shapes
                 ]
-                preconditioners = [jnp.eye(max_size, dtype=jnp.float32) for s in shapes]
+
+                preconditioners = [jnp.eye(max_size, dtype=jnp.float32) for _ in shapes]
                 padded_statistics.extend(statistics)
                 padded_preconditioners.extend(preconditioners)
                 exponent = (
@@ -1041,10 +1051,7 @@ def distributed_shampoo(
     def _remove_leading_sharding_annotation(pspec):
         """Mapping from N-d to (N-1)-d, used for quantization, factoring etc."""
         # None and PSpec(None) are valid PSpecs.
-        if pspec and len(pspec) > 1:
-            return pjit.PartitionSpec(*pspec[1:])
-        else:
-            return []
+        return pjit.PartitionSpec(*pspec[1:]) if pspec and len(pspec) > 1 else []
 
     def sharded_init_partition_spec_fn(
         params, params_partition_spec, partition_spec_for_statistics
@@ -1410,7 +1417,7 @@ def distributed_shampoo(
 
     def _skip_preconditioning(param):
         return len(param.shape) < 1 or any(
-            [s > skip_preconditioning_dim_size_gt for s in param.shape]
+            s > skip_preconditioning_dim_size_gt for s in param.shape
         )
 
     def _compute_stats(grad, state, param, step):
@@ -1425,11 +1432,11 @@ def distributed_shampoo(
 
             def compute_updated_statistics():
                 new_stats = preconditioner.statistics_from_grad(grad)
-                new_stats_accumulators = []
-                for stat, stat_accumulator in zip(new_stats, state.statistics):
-                    new_stats_accumulators.append(
-                        w1 * _to_float(stat_accumulator) + w2 * stat
-                    )
+                new_stats_accumulators = [
+                    w1 * _to_float(stat_accumulator) + w2 * stat
+                    for stat, stat_accumulator in zip(new_stats, state.statistics)
+                ]
+
                 return _maybe_quantize_statistics(new_stats_accumulators)
 
             if statistics_compute_steps > 1:
@@ -2037,11 +2044,11 @@ def distributed_shampoo(
         for state, param in zip(states, params):
             num_statistics = len(state.statistics)
             num_statistics_per_state.append(num_statistics)
-            original_shapes_for_state = []
             if num_statistics > 0:
                 preconditioner = Preconditioner(
                     param, block_size, best_effort_shape_interpretation
                 )
+                original_shapes_for_state = []
                 for statistic in state.statistics:
                     exponents.append(
                         preconditioner.exponent_for_preconditioner()
@@ -2055,34 +2062,7 @@ def distributed_shampoo(
                 prev_preconditioners.extend(state.preconditioners)
                 original_shapes.extend(original_shapes_for_state)
 
-        if batch_axis_name:
-            # Quantization is only enabled if batch_axis_name is not set.
-            quantized_dtype = quantized_dtype_for_second_moment_statistics_buffers()
-
-            if quantized_dtype == jnp.float32:
-                return _pmap_compute_preconditioners(
-                    states,
-                    step,
-                    statistics,
-                    num_statistics_per_state,
-                    original_shapes,
-                    exponents,
-                    max_size,
-                    prev_preconditioners,
-                )
-            else:
-                return _pmap_quantized_compute_preconditioners(
-                    states,
-                    step,
-                    statistics,
-                    num_statistics_per_state,
-                    original_shapes,
-                    exponents,
-                    max_size,
-                    prev_preconditioners,
-                )
-
-        else:
+        if not batch_axis_name:
             return _pjit_compute_preconditioners(
                 states,
                 step,
@@ -2093,6 +2073,32 @@ def distributed_shampoo(
                 max_size,
                 prev_preconditioners,
             )
+        # Quantization is only enabled if batch_axis_name is not set.
+        quantized_dtype = quantized_dtype_for_second_moment_statistics_buffers()
+
+        return (
+            _pmap_compute_preconditioners(
+                states,
+                step,
+                statistics,
+                num_statistics_per_state,
+                original_shapes,
+                exponents,
+                max_size,
+                prev_preconditioners,
+            )
+            if quantized_dtype == jnp.float32
+            else _pmap_quantized_compute_preconditioners(
+                states,
+                step,
+                statistics,
+                num_statistics_per_state,
+                original_shapes,
+                exponents,
+                max_size,
+                prev_preconditioners,
+            )
+        )
 
     def _transform_grad(grad, state, param, step):
         """Transform per-parameter gradients."""
@@ -2101,14 +2107,20 @@ def distributed_shampoo(
         )
         sgd_update = grad
         new_diagonal_statistics = state.diagonal_statistics.to_float()
-        if (
-            graft_type == GraftingType.ADAGRAD
-            or graft_type == GraftingType.ADAGRAD_NORMALIZED
-        ):
+        if graft_type == GraftingType.ADAGRAD:
 
             scaled_grad = grad
-            if graft_type == GraftingType.ADAGRAD_NORMALIZED:
-                scaled_grad = grad / (jnp.linalg.norm(grad) + 1e-16)
+            new_diagonal_statistics = state.diagonal_statistics.to_float() + jnp.square(
+                scaled_grad
+            )
+            adagrad_update = scaled_grad / (
+                jnp.sqrt(new_diagonal_statistics) + diagonal_epsilon
+            )
+            grafting_update = adagrad_update
+        elif graft_type == GraftingType.ADAGRAD_NORMALIZED:
+
+            scaled_grad = grad
+            scaled_grad = grad / (jnp.linalg.norm(grad) + 1e-16)
 
             new_diagonal_statistics = state.diagonal_statistics.to_float() + jnp.square(
                 scaled_grad
@@ -2117,10 +2129,7 @@ def distributed_shampoo(
                 jnp.sqrt(new_diagonal_statistics) + diagonal_epsilon
             )
             grafting_update = adagrad_update
-        elif (
-            graft_type == GraftingType.RMSPROP
-            or graft_type == GraftingType.RMSPROP_NORMALIZED
-        ):
+        elif graft_type in [GraftingType.RMSPROP, GraftingType.RMSPROP_NORMALIZED]:
 
             scaled_grad = grad
             if graft_type == GraftingType.RMSPROP_NORMALIZED:
@@ -2152,12 +2161,14 @@ def distributed_shampoo(
             grafting_update = jnp.ones_like(sgd_update) * jnp.sign(sgd_update)
 
         precond_grad = grad
-        if not _skip_preconditioning(param):
-            precond_grad = preconditioner.preconditioned_grad(
-                precond_grad, _maybe_dequantize_preconditioners(state.preconditioners)
+        precond_grad = (
+            grafting_update
+            if _skip_preconditioning(param)
+            else preconditioner.preconditioned_grad(
+                precond_grad,
+                _maybe_dequantize_preconditioners(state.preconditioners),
             )
-        else:
-            precond_grad = grafting_update
+        )
 
         grafting_update_norm = jnp.linalg.norm(grafting_update)
         precond_grad_norm = jnp.linalg.norm(precond_grad)

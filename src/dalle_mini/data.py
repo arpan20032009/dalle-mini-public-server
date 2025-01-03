@@ -323,8 +323,7 @@ class Dataset:
 
             for idx in batch_idx:
                 batch = dataset[idx]
-                batch = {k: jnp.array(v) for k, v in batch.items()}
-                yield batch
+                yield {k: jnp.array(v) for k, v in batch.items()}
 
         def _dataloader_datasets_streaming(
             dataset: Dataset,
